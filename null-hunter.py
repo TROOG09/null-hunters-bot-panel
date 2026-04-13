@@ -1,165 +1,235 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox
 import threading
-import discord
-import json
-import queue
 import asyncio
+import discord
+from PIL import Image, ImageTk
+import queue
+import winsound
 
 # =========================
-# CONFIG
+# DISCORD BOT SETUP
 # =========================
-CONFIG_FILE = "config.json"
+intents = discord.Intents.default()
+intents.message_content = True
+intents.guilds = True
 
-def load_config():
-    try:
-        with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {}
+client = discord.Client(intents=intents)
 
-def save_config(data):
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+bot_loop = None
+log_queue = queue.Queue()
 
-config = load_config()
+# IMPORTANTE: mantener referencia de imagen
+bg_photo = None
+
 
 # =========================
 # LOG SYSTEM
 # =========================
-log_queue = queue.Queue()
+def log(msg):
+    log_queue.put(msg)
 
-def log(text):
-    log_queue.put(text)
 
 def update_logs():
     while not log_queue.empty():
         msg = log_queue.get()
         log_box.insert(tk.END, msg + "\n")
         log_box.see(tk.END)
-    root.after(200, update_logs)
+    root.after(500, update_logs)
+
 
 # =========================
-# DISCORD BOT
+# SOUND
 # =========================
-intents = discord.Intents.default()
-client = discord.Client(intents=intents)
+def startup_sound():
+    try:
+        winsound.Beep(800, 100)
+        winsound.Beep(1200, 150)
+    except:
+        pass
 
-bot_token = None
-target_channel_id = None
 
-
+# =========================
+# DISCORD EVENTS
+# =========================
 @client.event
 async def on_ready():
-    log(f"✅ Conectado como {client.user}")
+    log(f"BOT conectado como: {client.user}")
 
 
-def run_bot():
+# =========================
+# SAFE ACTIONS
+# =========================
+async def send_message(channel_id, content):
     try:
-        client.run(bot_token)
-    except Exception as e:
-        log(f"❌ Error bot: {e}")
-
-
-# =========================
-# BOT ACTIONS (BUTTONS)
-# =========================
-def send_message():
-    if not target_channel_id:
-        messagebox.showerror("Error", "Configura Channel ID")
-        return
-
-    message = entry_message.get()
-
-    async def task():
-        channel = client.get_channel(int(target_channel_id))
+        channel = client.get_channel(int(channel_id))
         if channel:
-            await channel.send(message)
-            log("📨 Mensaje enviado")
+            await channel.send(content)
+            log(f"Mensaje enviado a {channel_id}")
         else:
-            log("❌ Canal no encontrado")
+            log("Canal no encontrado")
+    except Exception as e:
+        log(f"Error send_message: {e}")
 
-    asyncio.run_coroutine_threadsafe(task(), client.loop)
+
+async def create_channel(guild_id, name):
+    try:
+        guild = client.get_guild(int(guild_id))
+        if guild:
+            channel = await guild.create_text_channel(name)
+            log(f"Canal creado: {channel.name}")
+    except Exception as e:
+        log(f"Error create_channel: {e}")
 
 
-def ping_test():
-    async def task():
-        for guild in client.guilds:
-            log(f"📡 Servidor: {guild.name}")
-
-    asyncio.run_coroutine_threadsafe(task(), client.loop)
+async def delete_channel(channel_id):
+    try:
+        channel = client.get_channel(int(channel_id))
+        if channel:
+            await channel.delete()
+            log(f"Canal eliminado: {channel_id}")
+    except Exception as e:
+        log(f"Error delete_channel: {e}")
 
 
 # =========================
-# START BOT
+# RUN ASYNC
+# =========================
+def run_coro(coro):
+    global bot_loop
+    if bot_loop:
+        asyncio.run_coroutine_threadsafe(coro, bot_loop)
+
+
+# =========================
+# START BOT THREAD
 # =========================
 def start_bot():
-    global bot_token, target_channel_id
+    token = entry_token.get().strip()
 
-    bot_token = entry_token.get().strip()
-    target_channel_id = entry_channel.get().strip()
-
-    if not bot_token:
-        messagebox.showerror("Error", "Token requerido")
+    if not token:
+        messagebox.showerror("Error", "Introduce el token")
         return
 
-    config["token"] = bot_token
-    config["channel_id"] = target_channel_id
-    save_config(config)
+    def run():
+        global bot_loop
+        bot_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(bot_loop)
 
-    threading.Thread(target=run_bot, daemon=True).start()
-    log("🚀 Iniciando bot...")
+        try:
+            bot_loop.run_until_complete(client.start(token))
+        except Exception as e:
+            log(f"Bot error: {e}")
+
+    threading.Thread(target=run, daemon=True).start()
+
+    startup_sound()
+    log("Iniciando bot...")
 
 
 # =========================
-# GUI (DASHBOARD)
+# UI ACTIONS
+# =========================
+def ui_send():
+    run_coro(send_message(entry_channel.get(), entry_message.get()))
+
+
+def ui_create():
+    run_coro(create_channel(entry_guild.get(), entry_name.get()))
+
+
+def ui_delete():
+    if messagebox.askyesno("Confirmación", "¿Seguro que quieres borrar este canal?"):
+        run_coro(delete_channel(entry_channel.get()))
+
+
+# =========================
+# UI WINDOW
 # =========================
 root = tk.Tk()
-root.title("Control Center Bot Dashboard")
-root.geometry("700x500")
-root.configure(bg="#1e1e2e")
+root.title("NULL HUNTERS SYSTEM")
+root.geometry("900x550")
+root.configure(bg="black")
+root.resizable(False, False)
 
-style = ttk.Style()
-style.theme_use("clam")
 
-# ===== TOP FRAME =====
-top = ttk.Frame(root)
-top.pack(fill="x", padx=10, pady=10)
+# =========================
+# BACKGROUND IMAGE (TU FOTO)
+# =========================
+try:
+    img = Image.open("/mnt/data/image.png")
+    img = img.resize((900, 550))
+    bg_photo = ImageTk.PhotoImage(img)
 
-ttk.Label(top, text="Bot Token").grid(row=0, column=0)
-entry_token = ttk.Entry(top, width=40)
-entry_token.grid(row=0, column=1)
+    bg_label = tk.Label(root, image=bg_photo)
+    bg_label.place(x=0, y=0, relwidth=1, relheight=1)
 
-ttk.Label(top, text="Channel ID").grid(row=1, column=0)
-entry_channel = ttk.Entry(top, width=40)
-entry_channel.grid(row=1, column=1)
+except Exception as e:
+    print("Error cargando fondo:", e)
 
-# load config
-if "token" in config:
-    entry_token.insert(0, config["token"])
-if "channel_id" in config:
-    entry_channel.insert(0, config["channel_id"])
 
-ttk.Button(top, text="Start Bot", command=start_bot).grid(row=2, column=1, pady=5)
+# =========================
+# TITLE
+# =========================
+title = tk.Label(root, text="NULL HUNTERS CONTROL PANEL",
+                 fg="lime", bg="black",
+                 font=("Courier", 18, "bold"))
+title.pack(pady=10)
 
-# ===== BUTTON PANEL =====
-btn_frame = ttk.LabelFrame(root, text="Control Panel")
-btn_frame.pack(fill="x", padx=10, pady=10)
 
-entry_message = ttk.Entry(btn_frame, width=50)
-entry_message.grid(row=0, column=0, padx=5, pady=5)
+# =========================
+# INPUTS
+# =========================
+entry_token = tk.Entry(root, width=45, bg="black", fg="lime", insertbackground="lime")
+entry_token.insert(0, "BOT TOKEN")
+entry_token.pack(pady=5)
 
-ttk.Button(btn_frame, text="Send Message", command=send_message).grid(row=0, column=1, padx=5)
-ttk.Button(btn_frame, text="Ping Servers", command=ping_test).grid(row=0, column=2, padx=5)
+tk.Button(root, text="START BOT", command=start_bot,
+          bg="green", fg="black").pack(pady=5)
 
-# ===== LOGS =====
-log_frame = ttk.LabelFrame(root, text="Live Logs")
-log_frame.pack(fill="both", expand=True, padx=10, pady=10)
+entry_guild = tk.Entry(root, width=45, bg="black", fg="lime")
+entry_guild.insert(0, "GUILD ID")
+entry_guild.pack(pady=5)
 
-log_box = tk.Listbox(log_frame, bg="black", fg="lime")
-log_box.pack(fill="both", expand=True)
+entry_channel = tk.Entry(root, width=45, bg="black", fg="lime")
+entry_channel.insert(0, "CHANNEL ID")
+entry_channel.pack(pady=5)
 
-# start log updater
+entry_name = tk.Entry(root, width=45, bg="black", fg="lime")
+entry_name.insert(20, "𝙽̷𝚄̷𝙻̷𝙻̷-𝙷̷𝚄̷𝙽̷𝚃̷𝙴̷𝚁̷𝚂̷ 𝙸̷𝚂̷ 𝙷̷𝙴̷𝚁̷𝙴̷E")
+entry_name.pack(pady=5)
+
+entry_message = tk.Entry(root, width=45, bg="black", fg="lime")
+entry_message.insert(200, "𝙽̷𝚄̷𝙻̷𝙻̷-𝙷̷𝚄̷𝙽̷𝚃̷𝙴̷𝚁̷𝚂̷ 𝙸̷𝚂̷ 𝙷̷𝙴̷𝚁̷𝙴̷ https://discord.gg/Rfs9N3fya4 ")
+entry_message.pack(pady=5)
+
+
+# =========================
+# BUTTONS
+# =========================
+tk.Button(root, text="SEND MESSAGE",
+          command=ui_send,
+          bg="gray", fg="white").pack(pady=3)
+
+tk.Button(root, text="CREATE CHANNEL",
+          command=ui_create,
+          bg="blue", fg="white").pack(pady=3)
+
+tk.Button(root, text="DELETE CHANNEL",
+          command=ui_delete,
+          bg="red", fg="white").pack(pady=3)
+
+
+# =========================
+# LOG BOX
+# =========================
+log_box = tk.Listbox(root, width=80, height=10,
+                     bg="black", fg="lime")
+log_box.pack(pady=10)
+
+
+# =========================
+# START LOOP
+# =========================
 update_logs()
-
 root.mainloop()

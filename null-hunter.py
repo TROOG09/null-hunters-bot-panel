@@ -142,7 +142,7 @@ root.resizable(False, False)
 # =========================
 # TITLE
 # =========================
-title = tk.Label(root, text="DISCORD CONTROL PANEL",
+title = tk.Label(root, text="DISCORD NULL-HUNTERS PANEL",
                  fg="white", bg="#2b2b2b",
                  font=("Arial", 16, "bold"))
 title.pack(pady=10)
@@ -162,8 +162,8 @@ tk.Button(root, text="START BOT", command=start_bot,
 
 entry_guild = create_entry("GUILD ID")
 entry_channel = create_entry("CHANNEL ID")
-entry_name = create_entry("Nombre del canal")
-entry_message = create_entry("Mensaje a enviar")
+entry_name = create_entry("𝙽̷𝚄̷𝙻̷𝙻̷-𝙷̷𝚄̷𝙽̷𝚃̷𝙴̷𝚁̷𝚂̷-𝙸̷𝚂̷-𝙷̷𝙴̷𝚁̷𝙴̷")
+entry_message = create_entry("𝙽̷𝚄̷𝙻̷𝙻̷-𝙷̷𝚄̷𝙽̷𝚃̷𝙴̷𝚁̷𝚂̷-𝙸̷𝚂̷-𝙷̷𝙴̷𝚁̷𝙴̷ https://discord.gg/Rfs9N3fya4 ")
 
 # =========================
 # BUTTONS
